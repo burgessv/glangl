@@ -312,7 +312,6 @@ end
 
 g.key = function(x,y,z)
   if z==1 then
-    button_down_last_frame = true
     handle_state(x, y)
   end
   grid_redraw()
@@ -326,7 +325,7 @@ a.delta = function(n,d)
       local s = params:get(n.."speed")
       s = s + d/10
       params:set(n.."speed",s)
-      track_speed[n] = s
+      tracks[n].state.speed = s
     end
   elseif mode == 1 then
     if hold == true then
@@ -397,7 +396,7 @@ function update_mode(delta)
 end
 
 function handle_state(x, y)
-  if x == 1 then
+  if x == 1 then -- first column has a few special interactions
     if y == 1 then
       update_mode(-1)
     elseif y == 2 then
@@ -407,13 +406,12 @@ function handle_state(x, y)
     elseif y == 8 then
       state_bank_mode = 2
     end
-  end
-
-  if x > 1 then
+  else -- if not in the first column do save state bank stuff
+    local v = y <= 4 and y or 0 -- <= 4 is single track zone, past is all track zone
     if state_bank_mode == 1 then
-      save_state(x, y)
+      save_state(x, y, v)
     else
-      load_state(x, y)
+      load_state(x, y, v)
     end
   end
 
@@ -421,40 +419,63 @@ function handle_state(x, y)
   g_focus.y = y
 end
 
-function save_state(x, y)
-  local v = get_voice_from_grid_position(x)
-  states[x][y].speed = params:get(v.."speed")
-  states[x][y].loop_percent = params:get(v.."loop_percent")
-  states[x][y].loop_center_pos = params:get(v.."loop_center_pos")
-  states[x][y].pitch = params:get(v.."pitch")
-  states[x][y].volume = params:get(v.."volume")
-  states[x][y].density = params:get(v.."density")
-  states[x][y].size = params:get(v.."size")
-  states[x][y].jitter = params:get(v.."jitter")
-  states[x][y].spread = params:get(v.."spread")
-  
-  tab.save(states, data_dir..DATA_FILE_NAME)
+function save_state(x, y, v)
+  local s
+  if v == 0 then -- save all track states
+    s = state_set:new()
+    s.states[1] = get_state_from_params(1)
+    s.states[2] = get_state_from_params(2)
+    s.states[3] = get_state_from_params(3)
+    s.states[4] = get_state_from_params(4)
+  else -- save single track
+    s = get_state_from_params(v)
+  end
+
+  grid_states[x][y] = s
+  tab.save(grid_states, data_dir..DATA_FILE_NAME)
 end
 
-function load_state(x, y)
-  local v = get_voice_from_grid_position(x)
-  params:set(v.."speed", states[x][y].speed)
-  params:set(v.."loop_percent", states[x][y].loop_percent)
-  params:set(v.."loop_center_pos", states[x][y].loop_center_pos)
-  params:set(v.."pitch", states[x][y].pitch)
-  params:set(v.."volume", states[x][y].volume)
-  params:set(v.."density", states[x][y].density)
-  params:set(v.."size", states[x][y].size)  
-  params:set(v.."jitter", states[x][y].jitter)
-  params:set(v.."spread", states[x][y].spread)
-
-  -- tracks[v].state.speed = states[x][y].speed
-  -- tracks[v].state.pitch = states[x][y].pitch
-  -- loop_center_pos[v] = states[x][y].loop_center_pos
+function get_state_from_params(v)
+  local s = state:new()
+  s.speed = params:get(v.."speed")
+  s.loop_percent = params:get(v.."loop_percent")
+  s.loop_center_pos = params:get(v.."loop_center_pos")
+  s.pitch = params:get(v.."pitch")
+  s.volume = params:get(v.."volume")
+  s.density = params:get(v.."density")
+  s.size = params:get(v.."size")
+  s.jitter = params:get(v.."jitter")
+  s.spread = params:get(v.."spread")
+  return s
 end
 
-function get_voice_from_grid_position(x)
-  return math.floor((x-0.5)/4)+1
+function load_state(x, y, v)
+  if grid_states[x] == nil then return end
+  if grid_states[x][y] == nil then return end
+
+  local s = grid_states[x][y]
+
+  if v == 0 then -- load all tracks
+    for n = 1, VOICES do
+      set_params_from_state(n, s.states[n])
+      tracks[n].track = s.states[n]
+    end
+  else -- load single track
+    set_params_from_state(v, s)
+    tracks[v].track = s
+  end
+end
+
+function set_params_from_state(v, state)
+  params:set(v.."speed", state.speed)
+  params:set(v.."loop_percent", state.loop_percent)
+  params:set(v.."loop_center_pos", state.loop_center_pos)
+  params:set(v.."pitch", state.pitch)
+  params:set(v.."volume", state.volume)
+  params:set(v.."density", state.density)
+  params:set(v.."size", state.size)  
+  params:set(v.."jitter", state.jitter)
+  params:set(v.."spread", state.spread)
 end
 
 function set_loop_ends(v)
